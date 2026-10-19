@@ -86,7 +86,7 @@ const LLMS = `# Title
 - [Spec](https://docs.base.org/specifications/base-protocol/consensus/specification): Rollup node.
 <!-- LLMS_AUTOGEN_END -->`;
 
-test("llms-full index parsing keeps heading paths and finds siblings", () => {
+test("llms.txt index parsing keeps heading paths and finds siblings", () => {
   const entries = parseLlmsIndex(LLMS);
   assert.equal(entries.length, 5);
   const loc = locateInIndex(entries, "get-started/connect-to-base");
@@ -319,7 +319,7 @@ function fakeSite() {
   nodeFs.mkdirSync(nodePath.join(root, "docs/get-started"), { recursive: true });
   const baseNav = { navigation: { tabs: [{ groups: [{ pages: ["get-started/existing", "get-started/retired"] }] }] }, redirects: [] };
   nodeFs.writeFileSync(nodePath.join(root, "docs/docs.json"), JSON.stringify(baseNav));
-  nodeFs.writeFileSync(nodePath.join(root, "docs/llms-full.txt"), "");
+  nodeFs.writeFileSync(nodePath.join(root, "docs/llms.txt"), "");
   nodeFs.writeFileSync(nodePath.join(root, "docs/get-started/existing.mdx"), "# Existing");
   nodeFs.writeFileSync(nodePath.join(root, "docs/get-started/retired.mdx"), "# Retired");
   const prNav = { navigation: { tabs: [{ groups: [{ pages: ["get-started/existing", "get-started/new-a", "get-started/new-b"] }] }] }, redirects: [] };

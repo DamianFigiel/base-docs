@@ -316,11 +316,26 @@ export function renderRiskOnlySummary({ riskBlock, headSha, runUrl }) {
   return [STICKY_MARKER, "## Docs review", "", riskBlock, `No documentation pages changed in \`${headSha.slice(0, 7)}\`, so there is no content review.`, "", FOOTER(runUrl)].join("\n");
 }
 
-export function renderSummary({ review, facts, headSha, inlineFindings, withheld = new Map(), runUrl, riskBlock = "", model = "" }) {
+export function renderSummary({
+  review,
+  facts,
+  headSha,
+  inlineFindings,
+  withheld = new Map(),
+  runUrl,
+  riskBlock = "",
+  model = "",
+  history = null,
+  suppressed = [],
+  state = "",
+}) {
   const inlineSet = new Set(inlineFindings);
   const out = [STICKY_MARKER, "## Docs review", ""];
   if (riskBlock) out.push(riskBlock);
-  out.push(`**Verdict:** ${VERDICT_LABEL[review.verdict]} · reviewed \`${headSha.slice(0, 7)}\`${model ? ` with \`${model}\`` : ""}`, "");
+  const round = history
+    ? ` · follow-up round ${history.round}, ${history.since ? "changes since" : "compared with"} \`${history.previousSha.slice(0, 7)}\``
+    : "";
+  out.push(`**Verdict:** ${VERDICT_LABEL[review.verdict]} · reviewed \`${headSha.slice(0, 7)}\`${model ? ` with \`${model}\`` : ""}${round}`, "");
   if (review.summary) out.push(review.summary, "");
 
   const section = (label, items) => {
@@ -341,13 +356,13 @@ export function renderSummary({ review, facts, headSha, inlineFindings, withheld
   };
   section("Blocking", review.findings.filter((f) => f.severity === "blocking"));
   section("Suggestions", review.findings.filter((f) => f.severity === "suggestion"));
-  if (!review.findings.length) out.push("No findings.", "");
+  if (!review.findings.length) out.push(history ? "No new findings since the previous review." : "No findings.", "");
 
   out.push("<details><summary>What the reviewer checked</summary>", "");
   out.push("| Page | Placement | Index section | Neighbors read |", "|---|---|---|---|");
   for (const f of facts) {
     out.push(
-      `| \`${f.filename}\` | ${placementCell(f)} | ${f.index ? f.index.section : "not in llms-full.txt"} | ${f.neighbors.length} |`,
+      `| \`${f.filename}\` | ${placementCell(f)} | ${f.index ? f.index.section : "not in llms.txt"} | ${f.neighbors.length} |`,
     );
   }
   const links = facts.flatMap((f) => f.links);
@@ -355,7 +370,14 @@ export function renderSummary({ review, facts, headSha, inlineFindings, withheld
     out.push("", "Links added: " + links.map((l) => `\`${l.href}\` (${l.verdict})`).join(", "));
   }
   if (review.dropped.length) out.push("", `${review.dropped.length} malformed finding(s) were discarded.`);
+  if (suppressed.length) {
+    out.push(
+      "",
+      `${suppressed.length} non-blocking finding(s) were left out because follow-up rounds report only blocking problems and suggestions on lines changed since the previous review.`,
+    );
+  }
   out.push("", "</details>", "");
   out.push(FOOTER(runUrl));
+  if (state) out.push(state);
   return out.join("\n");
 }

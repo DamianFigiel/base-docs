@@ -19,6 +19,13 @@
  *   4. Validate the JSON; post/update one summary comment; post inline
  *      suggestion comments once per head commit.
  *
+ * Follow-up rounds (history.mjs): when the PR was reviewed before, the model
+ * gets its previous findings and only the diff since the last reviewed
+ * commit, and code drops non-blocking findings outside that scope. If no
+ * reviewed page changed since then (for example, a merge from master), there
+ * is no new review. Outdated inline suggestions from earlier rounds are
+ * minimized.
+ *
  * Writes: one issue comment (updated in place), at most one PR review of
  * type COMMENT per head commit, and one `risk: <level>` label (stale risk
  * labels removed). Never pushes, approves, requests changes, merges, or
@@ -34,6 +41,7 @@ import path from "node:path";
 import { createGitHub, isWorkflowBot } from "./github.mjs";
 import { buildFileFacts, isReviewablePage, loadSite, prPageChanges, readCapped } from "./context.mjs";
 import { SYSTEM_PROMPT, buildReviewPrompt } from "./prompts.mjs";
+import { applyFollowUpScope, changesSince, loadHistory, nextState, renderState } from "./history.mjs";
 import {
   STICKY_MARKER,
   extractJson,
@@ -106,6 +114,28 @@ async function main() {
   const reviewed = pages.slice(0, MAX_PAGES);
   if (pages.length > MAX_PAGES) console.log(`Reviewing the first ${MAX_PAGES} of ${pages.length} pages.`);
 
+  // Follow-up rounds: what the previous review said, and what changed since.
+  const history = await loadHistory({ gh, prNumber, comments: await gh.listIssueComments(prNumber), stickyMarker: STICKY_MARKER });
+  if (history) {
+    if (history.previousSha === headSha) {
+      console.log(`Commit ${headSha.slice(0, 7)} was already reviewed; nothing to do.`);
+      return;
+    }
+    history.since = await changesSince({
+      gh,
+      previousSha: history.previousSha,
+      headSha,
+      files: new Set(reviewed.map((f) => f.filename)),
+    });
+    if (history.since && history.since.size === 0) {
+      console.log(`No reviewed page changed since ${history.previousSha.slice(0, 7)}; keeping the previous review.`);
+      return;
+    }
+    console.log(
+      `Follow-up round ${history.round} (history from ${history.source}); ${history.since ? `${history.since.size} page(s) changed since ${history.previousSha.slice(0, 7)}` : "changes since the previous review unavailable"}.`,
+    );
+  }
+
   // PR content (untrusted data) from the API; base content from the trusted checkout.
   const contents = new Map();
   for (const f of reviewed) {
@@ -150,6 +180,7 @@ async function main() {
     contents,
     guidelines,
     otherChangedFiles: others,
+    history,
   });
 
   const model = reviewModelFor(risk.level);
@@ -178,6 +209,11 @@ async function main() {
 
   const patches = new Map(reviewed.map((f) => [f.filename, f.patch || ""]));
   const heads = new Map([...contents].map(([file, c]) => [file, c.headContent]));
+
+  const { kept, suppressed } = applyFollowUpScope(review.findings, history, heads);
+  review.findings = kept;
+  // "Fits, with changes" and nothing left to change reads as a contradiction.
+  if (history && !kept.length && review.verdict === "fits_with_changes") review.verdict = "fits";
   const { inline, withheld } = planInlineComments(review.findings, patches, heads);
   const summary = renderSummary({
     review,
@@ -188,6 +224,9 @@ async function main() {
     runUrl,
     riskBlock,
     model,
+    history,
+    suppressed,
+    state: renderState(nextState({ history, headSha, findings: review.findings })),
   });
 
   // Output policy gate (SPA-26751): nothing is posted if any comment body
@@ -231,8 +270,11 @@ async function main() {
     }
   }
 
+  // 3) Collapse earlier inline suggestions whose lines have since changed.
+  await minimizeOutdatedSuggestions(gh, prNumber);
+
   console.log(
-    `::notice title=Docs review posted::risk=${risk.level} model=${model} verdict=${review.verdict} findings=${review.findings.length} inline=${inline.length} withheld=${withheld.size}`,
+    `::notice title=Docs review posted::risk=${risk.level} model=${model} round=${history ? history.round : 1} verdict=${review.verdict} findings=${review.findings.length} suppressed=${suppressed.length} inline=${inline.length} withheld=${withheld.size}`,
   );
 }
 
@@ -300,6 +342,28 @@ async function upsertSummary(gh, prNumber, summary) {
   const existing = comments.find((c) => isWorkflowBot(c.user) && c.body?.startsWith(STICKY_MARKER));
   if (existing) await gh.updateIssueComment(existing.id, summary);
   else await gh.createIssueComment(prNumber, summary);
+}
+
+/**
+ * Minimize this workflow's inline suggestions that GitHub marks outdated (the
+ * lines they point at have changed), so each push does not stack another
+ * visible batch on top of the last. Only comments in reviews carrying our
+ * marker are touched. Failures are logged, never fatal.
+ */
+async function minimizeOutdatedSuggestions(gh, prNumber) {
+  try {
+    const [reviews, comments] = await Promise.all([gh.listReviews(prNumber), gh.listReviewComments(prNumber)]);
+    const ours = new Set(
+      reviews.filter((r) => isWorkflowBot(r.user) && r.body?.includes("<!-- docs-pr-review:sha=")).map((r) => r.id),
+    );
+    const outdated = comments.filter(
+      (c) => ours.has(c.pull_request_review_id) && isWorkflowBot(c.user) && c.line == null && c.node_id,
+    );
+    for (const c of outdated) await gh.minimizeComment(c.node_id, "OUTDATED");
+    if (outdated.length) console.log(`Minimized ${outdated.length} outdated inline suggestion(s).`);
+  } catch (err) {
+    console.warn(`::warning title=Outdated suggestions not minimized::${err.message}`);
+  }
 }
 
 function appendStepSummary(markdown) {

@@ -7,7 +7,7 @@
  *
  * Everything the model reads that is not computed by this code is wrapped in
  * <untrusted_*> tags: the pull request (title, body, diff, head file) AND all
- * repository context (pages, neighbor pages, guidelines, the llms-full.txt
+ * repository context (pages, neighbor pages, guidelines, the llms.txt
  * index, added-link lists). Default-branch files can themselves be AI-written
  * (docs-sync output) or carry injected text, so they are data, not
  * instructions (SPA-35356). Only the code-checked site facts sit outside tags.
@@ -45,8 +45,10 @@ Output contract — a single JSON object:
 
 Rules for findings:
 - At most ${MAX_FINDINGS} findings. Order them by importance. Fewer, sharper findings beat many small ones.
+- Zero findings is a valid result. When the change is clear, accurate, and in the right place, return "fits" with an empty findings list. Never add findings to fill space.
 - "blocking" means readers would be misled or would never see the change (wrong page, redirected page, contradicts another page, broken link, factual error). Everything else is a "suggestion".
 - Only set "replacement" when the fix is a small, self-contained wording edit to lines that this PR changed or that sit right next to them. The replacement must be the complete new text for exactly those lines, keeping the file's formatting, MDX components, links, addresses, numbers, and code exactly as they are. Leave it null for structural fixes (moving content to another page, rewriting a section) and for anything rule 5 forbids.
+- A replacement must itself meet the guidelines you judge against. Do not introduce hedges, vague wording, or claims the material does not support; you would have to flag them in the next review.
 - Do not report what CI already enforces mechanically (title case in headings, frontmatter presence, MDX syntax, file size). Focus on judgment.`;
 
 /**
@@ -74,7 +76,7 @@ function placementLine(fact) {
   return `NOT IN NAVIGATION: /${route} is not listed in docs.json navigation and no redirect points readers elsewhere. Readers cannot reach it from the sidebar.`;
 }
 
-function renderFact(fact, headContent, patch, baseContent) {
+function renderFact(fact, headContent, patch, baseContent, history) {
   const parts = [];
   parts.push(`File (${fact.changeType}):\n${BLOCK("untrusted_file_path", inlineUntrusted(fact.filename))}`);
   parts.push(`Site fact (checked by code, reliable): ${placementLine(fact)}`);
@@ -87,11 +89,11 @@ function renderFact(fact, headContent, patch, baseContent) {
   }
   if (fact.index) {
     parts.push(
-      `Index location (llms-full.txt): ${fact.index.section}\n` +
+      `Index location (llms.txt): ${fact.index.section}\n` +
         BLOCK("untrusted_index_entry", `"${fact.index.title}": ${fact.index.description}`),
     );
   } else {
-    parts.push("Index location (llms-full.txt): this page is not in the index.");
+    parts.push("Index location (llms.txt): this page is not in the index.");
   }
   if (fact.links.length) {
     parts.push(
@@ -118,6 +120,14 @@ function renderFact(fact, headContent, patch, baseContent) {
     );
   }
   parts.push(BLOCK("untrusted_diff", patch || "(no patch available — binary or too large)"));
+  if (history?.since) {
+    const since = history.since.get(fact.filename);
+    parts.push(
+      since
+        ? `Changes to this file since the previous review (the only lines to review in this round):\n${BLOCK("untrusted_diff_since_previous_review", since)}`
+        : "This file has not changed since the previous review. Do not report on it unless something in it is now factually wrong.",
+    );
+  }
   if (headContent != null) {
     const numbered = headContent
       .split("\n")
@@ -138,8 +148,9 @@ function renderFact(fact, headContent, patch, baseContent) {
  * @param {Map<string,{headContent?:string, patch?:string, baseContent?:string}>} input.contents
  * @param {Record<string,string>} input.guidelines  name -> text
  * @param {Array<string>} input.otherChangedFiles   non-page files in the PR (names only)
+ * @param {object|null} input.history  loadHistory() result plus `since` (Map file -> patch, or null)
  */
-export function buildReviewPrompt({ pr, facts, contents, guidelines, otherChangedFiles = [] }) {
+export function buildReviewPrompt({ pr, facts, contents, guidelines, otherChangedFiles = [], history = null }) {
   const g = Object.entries(guidelines)
     .map(([name, text]) => `## ${name}\n${BLOCK("untrusted_guideline", text)}`)
     .join("\n\n");
@@ -147,7 +158,7 @@ export function buildReviewPrompt({ pr, facts, contents, guidelines, otherChange
   const files = facts
     .map((f) => {
       const c = contents.get(f.filename) || {};
-      return renderFact(f, c.headContent, c.patch, c.baseContent);
+      return renderFact(f, c.headContent, c.patch, c.baseContent, history);
     })
     .join("\n\n---\n\n");
 
@@ -164,9 +175,48 @@ Pull request metadata (untrusted):
 ${BLOCK("untrusted_pr_title", pr.title)}
 ${BLOCK("untrusted_pr_body", (pr.body || "").slice(0, 6000))}
 ${otherChangedFiles.length ? `\nOther files changed in this PR (not reviewed here):\n${BLOCK("untrusted_other_files", otherChangedFiles.map(inlineUntrusted).join("\n"))}\n` : ""}
+${history ? renderFollowUp(history) : ""}
 Changed documentation pages:
 
 ${files}
 
 Return the JSON object now.`;
+}
+
+/** Previous findings as plain lines, for the untrusted block. */
+function previousFindingLines(findings) {
+  if (!findings.length) return "(the previous review had no findings)";
+  return findings
+    .map((f) => {
+      const where = f.line ? `${f.file} L${f.line}` : f.file;
+      const kind = [f.category, f.severity].filter(Boolean).join(", ");
+      const head = `- ${inlineUntrusted(where)}${kind ? ` (${kind})` : ""}: ${inlineUntrusted(f.title)}`;
+      return f.replacement ? `${head}\n  Suggested text:\n${f.replacement.replace(/^/gm, "    ")}` : head;
+    })
+    .join("\n");
+}
+
+/**
+ * Follow-up section. It tells the model what it already said and narrows the
+ * round to the changes since then. applyFollowUpScope() enforces the same
+ * scope in code, so these rules hold even if the model ignores them.
+ */
+export function renderFollowUp(history) {
+  const sinceKnown = Boolean(history.since);
+  return `
+This is follow-up review round ${history.round}. A previous review by you covered commit ${history.previousSha}. Its findings and suggested text are below; the author may have applied some of them, word for word or adapted.
+${BLOCK("untrusted_previous_findings", previousFindingLines(history.findings))}
+
+Follow-up rules (for this round they override the general instructions above):
+1. ${
+    sinceKnown
+      ? "Review only the lines that changed since the previous review (shown per file below). Everything else was already reviewed; do not report on it."
+      : "The changes since the previous review could not be isolated (history was rewritten), so the full diff is shown. Concentrate on what differs from the previous findings."
+  }
+2. Do not repeat or rephrase a previous finding. The author has already seen it.
+3. Text that matches or adapts one of your previous suggestions was accepted from you. Do not flag it unless it is factually wrong or contradicts another page; then report it as blocking.
+4. Do not contradict a previous suggestion, for example by asking to add a qualifier in one round and to remove it in the next.
+5. Report writing findings only when readers would be misled (blocking). Skip wording and style preferences.
+6. When the changes address the previous findings and add no new blocking problem, return "fits" with no findings. That is the expected outcome of a follow-up round.
+`;
 }

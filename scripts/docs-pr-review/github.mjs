@@ -30,6 +30,17 @@ export function createGitHub({ token, repo }) {
     return res.status === 204 ? null : res.json();
   }
 
+  async function graphql(query, variables) {
+    const headers = { Accept: "application/vnd.github+json", "User-Agent": "base-docs-pr-review", "Content-Type": "application/json" };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const res = await fetch(`${API}/graphql`, { method: "POST", headers, body: JSON.stringify({ query, variables }) });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || json.errors?.length) {
+      throw new Error(`GraphQL → HTTP ${res.status}: ${JSON.stringify(json.errors ?? json).slice(0, 300)}`);
+    }
+    return json.data;
+  }
+
   async function paginate(path, maxPages = 5) {
     const all = [];
     for (let page = 1; page <= maxPages; page++) {
@@ -91,6 +102,19 @@ export function createGitHub({ token, repo }) {
     updateIssueComment: (id, body) => request("PATCH", `/repos/${repo}/issues/comments/${id}`, { body: { body } }),
     listReviews: (n) => paginate(`/repos/${repo}/pulls/${n}/reviews`, 3),
     createReview: (n, payload) => request("POST", `/repos/${repo}/pulls/${n}/reviews`, { body: payload }),
+    /** Inline review comments on the PR (all reviews). */
+    listReviewComments: (n) => paginate(`/repos/${repo}/pulls/${n}/comments`, 5),
+    /** Diff from `base` to `head` (both full commit SHAs), with per-file patches. */
+    compareCommits: (base, head) => {
+      if (!/^[0-9a-f]{40}$/.test(base) || !/^[0-9a-f]{40}$/.test(head)) throw new Error("compare needs two full commit SHAs");
+      return request("GET", `/repos/${repo}/compare/${base}...${head}`);
+    },
+    /** Collapse a comment in the PR timeline (GraphQL node id). */
+    minimizeComment: (nodeId, classifier = "OUTDATED") =>
+      graphql(
+        "mutation($id: ID!, $c: ReportedContentClassifiers!) { minimizeComment(input: { subjectId: $id, classifier: $c }) { minimizedComment { isMinimized } } }",
+        { id: nodeId, c: classifier },
+      ),
   };
 }
 
