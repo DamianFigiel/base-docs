@@ -146,7 +146,7 @@ Transactions confirm in under a second on Base thanks to [Flashblocks](https://d
 
 Source: https://docs.base.org/base-chain/network-information/ecosystem-bridges
 
-Move ETH, stablecoins, and tokens to and from Base — from a Coinbase account, Ethereum, Solana, or Bitcoin.
+Move ETH, stablecoins, and tokens to and from Base using the standard bridge, fast bridges, aggregators, or cross-chain messaging protocols.
 
 Move assets to and from Base using the routes below. Pick the one that matches where your assets are today.
 
@@ -155,13 +155,28 @@ Move assets to and from Base using the routes below. Pick the one that matches w
 | Coming from | Recommended route | Typical assets |
 |---|---|---|
 | A Coinbase account | Withdraw directly to Base (no bridge) | ETH, USDC, cbBTC |
-| Ethereum (L1) | [Superbridge](https://superbridge.app/?fromChainId=1&toChainId=8453) or [Brid.gg](https://www.brid.gg/?fromChainId=1&toChainId=8453) | ETH, ERC-20s |
+| Ethereum (L1) | [Superbridge](https://superbridge.app/?fromChainId=1&toChainId=8453) or [Brid.gg](https://www.brid.gg/?fromChainId=1&toChainId=8453), or a [fast bridge](#fast-bridges) | ETH, ERC-20s |
+| Another EVM chain | A [fast bridge](#fast-bridges) or [bridge aggregator](#bridge-aggregators) | ETH, stablecoins, ERC-20s |
 | Solana | [Base–Solana bridge](https://docs.base.org/specifications/base-protocol/bridging/base-solana-bridge) | SOL, SPL tokens |
 | Bitcoin | [Garden](https://app.garden.finance/?output-chain=base&output-asset=cbBTC) | BTC → cbBTC |
+
+Fast bridges and aggregators are third-party services with their own trust model. Compare them with the standard bridge in [Compare Bridge Types](#compare-bridge-types).
 
 <Note>
 If you hold funds in a Coinbase account, you can withdraw many assets straight onto the Base network — select **Base** as the network when withdrawing, no bridge required. This is often the fastest path for USDC and ETH.
 </Note>
+
+## Compare Bridge Types
+
+Bridges to and from Base fall into three types. They differ in speed and in who you trust to deliver your funds.
+
+| Bridge type | Withdrawal to Ethereum | You trust |
+|---|---|---|
+| [Standard bridge](#from-ethereum) | 5-day [finalization window](https://docs.base.org/specifications/base-protocol/bridging/withdrawals), or 1 day when both TEE and ZK proofs back the proposal | Base's proofs on Ethereum |
+| [Fast bridge](#fast-bridges) | Typically seconds to minutes | The provider |
+| [Messaging protocol](#cross-chain-messaging-protocols) | Varies by protocol and configuration | The protocol and the token's settings |
+
+The finalization window applies only to standard bridge withdrawals from Base to Ethereum; standard bridge deposits from Ethereum to Base do not wait for it. To see why the window exists, read [Withdrawals](https://docs.base.org/specifications/base-protocol/bridging/withdrawals).
 
 ## From Ethereum
 
@@ -176,6 +191,8 @@ Bridge ETH and supported ERC-20s between Ethereum mainnet (L1) and Base. Both pr
   </Card>
 </CardGroup>
 
+Withdrawals from Base to Ethereum through the standard bridge wait for the finalization window shown in [Compare Bridge Types](#compare-bridge-types). Superbridge can also route through third-party bridges; check which route it selects before you confirm.
+
 ### Programmatic Bridging
 
 To bridge ETH and ERC-20s from Ethereum to Base in code, start from the [sample repository](https://github.com/base-org/guides/tree/main/bridge/native).
@@ -186,7 +203,49 @@ To bridge ETH and ERC-20s from Ethereum to Base in code, start from the [sample 
 
 ### For Token Issuers
 
-If you have an ERC-20 on Ethereum and want to enable bridging to Base, use the sample repository above as a starting point for the standard bridge contracts, then list your token on the Superchain token list.
+To make an ERC-20 on Ethereum bridgeable to Base through the standard bridge, use the sample repository above as a starting point for the standard bridge contracts, then list your token on the Superchain token list.
+
+To issue one token across Base and other chains, use a [cross-chain messaging protocol](#cross-chain-messaging-protocols).
+
+## Fast Bridges
+
+Fast bridges move assets between Base, Ethereum, and other chains in both directions, typically in seconds to minutes. Providers pay you out from liquidity on the destination chain, then settle through their own mechanism.
+
+| Provider | How it works | Links |
+|---|---|---|
+| Across | Intent-based bridge filled by competing relayers | [App](https://app.across.to/bridge), [Docs](https://docs.across.to) |
+| Relay | Bridging and swaps filled by solvers | [App](https://relay.link), [Docs](https://docs.relay.link) |
+| Stargate | Liquidity-pool bridge built on LayerZero | [App](https://stargate.finance/bridge), [Docs](https://stargateprotocol.gitbook.io/stargate/v2-user-docs) |
+
+<Warning>
+**Fast bridges do not inherit Base's security.** Your funds depend on the provider's contracts, relayers, and liquidity, and fees vary by route and size. Review the provider's security model, supported assets, and fees, and test with a small amount first.
+</Warning>
+
+## Bridge Aggregators
+
+Aggregators quote routes across many bridges and pick one for you, which helps when you are coming from a chain without a direct route to Base. The route's security depends on the bridge the aggregator selects, so check which bridge it uses before you confirm.
+
+<CardGroup cols={2}>
+  <Card title="Jumper" icon="route" href="https://jumper.exchange">
+    Bridge and swap aggregator built on LI.FI.
+  </Card>
+  <Card title="Bungee" icon="route" href="https://www.bungee.exchange">
+    Bridge and swap aggregator built on Socket.
+  </Card>
+</CardGroup>
+
+## Cross-Chain Messaging Protocols
+
+Cross-chain messaging protocols let a token issuer deploy one token across Base and other chains. Both of these support Base Mainnet:
+
+| Protocol | Token standard | Base reference |
+|---|---|---|
+| Chainlink CCIP | Cross-Chain Token (CCT) | [Base on CCIP](https://docs.chain.link/ccip/directory/mainnet/chain/ethereum-mainnet-base-1) |
+| LayerZero V2 | Omnichain Fungible Token (OFT) | [OFT quickstart](https://docs.layerzero.network/v2/developers/evm/oft/quickstart) |
+
+On LayerZero, Base Mainnet is endpoint ID `30184`; see [deployed contracts](https://docs.layerzero.network/v2/deployments/deployed-contracts).
+
+A token issued this way is secured by the protocol's own network, not by Base's standard bridge. Choose the protocol and its security settings before launch.
 
 ## From Solana
 
@@ -867,6 +926,7 @@ If you would like to provide discounts to the Base ecosystem, please
 | [OkHi](https://www.okhi.com) | Compliance, Fraud, Credit | Collect digital Proof of Address for your customers anywhere in the world. Integrate our SDK into your mobile app to strengthen compliance, mitigate fraud and improve credit. | 15% off any OkHi service for 1 year | 1. Register your info at okhi.com/enquiry <br/><br/> 2. Mention the Builder Stack in the "Tell us how we can help you" box <br/><br/> 3. We'll get in touch for a demo |
 | [Onchain](https://onchain.org) | Research | Onchain's Research-as-a-Service delivers onchain insights via custom reports, ecosystem analysis & dashboards, guiding protocols, builders, VCs & startups in the Base Ecosystem to informed decisions. | 10% off total services - $1-$10,000 15% off total services - $10,001-$25,000 20% off total services - $25,001+ | Discounts apply only to research services that center on your core company or BASE-bound contract. Projects outside that scope aren’t eligible. If you’re actively building and supporting the Base ecosystem and fit these criteria, request your discount via the [Onchain research discount form](https://docs.google.com/forms/d/e/1FAIpQLScdJLiTU-RWsNMwsenpmRYWihlVNoTh5weSoB1cXqjwKDpGhg/viewform). |
 | [OpenCover](https://opencover.com) | Insurance (or alternatively Security) | OpenCover is the #1 onchain cover provider on L2 (crypto-native insurance) used by wallets, platforms and protocol teams to cover their users against protocol and transaction risk programmatically. | Waived protocol or transaction insurance/cover setup fees, including listing, underwriting capital provision and API access (typically $5,000). | Apply on the [OpenCover for Base builders page](https://opencover.com/base-builders) or contact Jeremiah: https://t.me/itsjeremiahs |
+| [OpenServ](https://www.openserv.ai/) | AI Infrastructure / Developer Tools | OpenServ powers the agentic economy with SERV Reasoning, enabling developers to build and scale reliable AI agents and workflows with frontier-level performance at a fraction of the cost. | Base builders get $30 in free SERV Reasoning API credits to develop reliable onchain AI agents, automate complex workflows, and reduce inference costs. | 1. Create an OpenServ account at [console.openserv.ai](https://console.openserv.ai) 2. Submit the [Base Builder Stack Typeform](https://openserv.typeform.com/servcreditsbase) 3. Our team will verify your Base project and email an eligible applicant a credit code with redemption instructions |
 | [Paladin](https://paladinsec.co/) | Security & Audits | Smart contract security firm. 500+ audits, $10B+ TVL protected. Audits, pen testing, monitoring, and incident response across EVM, Solana, and Move. | 10% off all security engagements — audits, pen testing, and monitoring  exclusively for teams building on Base. | Submit your RFQ at paladinsec.co <br/><br/> Mention you're building on Base in your submission <br/><br/> DM @zabi_w on Telegram to confirm (we'll apply the discount before scoping) |
 | [Privy](https://www.privy.io/) | Wallets | Privy powers user onboarding and wallet infrastructure for many of the most popular products built onchain. | 25% off of Privy's listed pricing tiers for your first three months | Reach out to base@privy.io with your Privy appID and a brief description of what you're building to redeem offer. |
 | [Proof of Play](https://docs.proofofplay.com/services/vrng/about) | Infrastructure | Proof of Play helps builders create high-performance, serverless apps and games that can be extended or remixed by anyone. | 20% off at 500K/mo+ transactions | Message @adamfern on Telegram |
@@ -9247,7 +9307,7 @@ Canonical withdrawals to Ethereum can be finalized only after the dispute game f
 Most of the total time from initiating a withdrawal on Base to receiving funds on Ethereum is the finalization window. Waiting for the relevant Base state to be proposed on Ethereum usually adds only about 20 to 60 minutes, plus the time to submit the prove and finalize transactions. See [Transaction Finality](https://docs.base.org/specifications/transactions/transaction-finality#finality-for-withdrawal-transactions) for how withdrawal finality differs from ordinary Base transaction finality.
 </Note>
 
-Some third-party bridge providers offer faster withdrawals by using liquidity, relayers, or market makers to give users funds before the canonical withdrawal has fully finalized. These services do not shorten the protocol's canonical finalization window. See [Bridge to Base](https://docs.base.org/base-chain/network-information/ecosystem-bridges) for available routes.
+Some third-party bridge providers offer faster withdrawals by using liquidity, relayers, or market makers to give users funds before the canonical withdrawal has fully finalized. These services do not shorten the protocol's canonical finalization window. See [Fast Bridges](https://docs.base.org/base-chain/network-information/ecosystem-bridges#fast-bridges) for providers and [Compare Bridge Types](https://docs.base.org/base-chain/network-information/ecosystem-bridges#compare-bridge-types) for how they differ from the standard bridge.
 
 ## Overview
 

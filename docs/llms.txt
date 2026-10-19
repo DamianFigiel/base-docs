@@ -14,7 +14,7 @@
 
 - [Make a Transaction](https://docs.base.org/get-started/make-a-transaction): Send your first transaction on Base with viem: connect, sign, and confirm in seconds for a fraction of a cent.
 
-- [Bridge to Base](https://docs.base.org/base-chain/network-information/ecosystem-bridges): Move ETH, stablecoins, and tokens to and from Base — from a Coinbase account, Ethereum, Solana, or Bitcoin.
+- [Bridge to Base](https://docs.base.org/base-chain/network-information/ecosystem-bridges): Move ETH, stablecoins, and tokens to and from Base using the standard bridge, fast bridges, aggregators, or cross-chain messaging protocols.
 
 ### Solutions
 
